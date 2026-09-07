@@ -1,0 +1,368 @@
+{
+  "openapi": "3.0.1",
+  "info": {
+    "title": "Edge Cases API",
+    "version": "1.0.0"
+  },
+  "paths": {
+    "/response-example": {
+      "get": {
+        "operationId": "ResponseExample",
+        "responses": {
+          "200": {
+            "description": "ok",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "name": {
+                      "type": "string"
+                    }
+                  }
+                },
+                "example": {
+                  "name": "vindo do example da resposta"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/composition": {
+      "get": {
+        "operationId": "Composition",
+        "responses": {
+          "200": {
+            "description": "ok",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "merged": {
+                      "$ref": "#/components/schemas/Merged"
+                    },
+                    "chosen": {
+                      "oneOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "type": "integer"
+                        }
+                      ]
+                    },
+                    "alternative": {
+                      "anyOf": [
+                        {
+                          "type": "boolean"
+                        },
+                        {
+                          "type": "string"
+                        }
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/recursive": {
+      "get": {
+        "operationId": "Recursive",
+        "responses": {
+          "200": {
+            "description": "ok",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Node"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/degenerate": {
+      "get": {
+        "operationId": "Degenerate",
+        "responses": {
+          "200": {
+            "description": "ok",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "emptyObject": {
+                      "type": "object"
+                    },
+                    "arrayWithoutItems": {
+                      "type": "array"
+                    },
+                    "unknownType": {
+                      "type": "file"
+                    },
+                    "inferredObject": {
+                      "properties": {
+                        "inner": {
+                          "type": "integer"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/no-content": {
+      "post": {
+        "operationId": "NoContent",
+        "responses": {
+          "202": {
+            "description": "aceito",
+            "content": {}
+          }
+        }
+      }
+    },
+    "/no-responses": {
+      "delete": {
+        "operationId": "NoResponses",
+        "responses": {}
+      }
+    },
+    "/errors-only": {
+      "get": {
+        "operationId": "ErrorsOnly",
+        "responses": {
+          "404": {
+            "description": "não encontrado",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "code": {
+                      "type": "integer"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "erro",
+            "content": {}
+          }
+        }
+      }
+    },
+    "/lowest-2xx": {
+      "get": {
+        "operationId": "LowestSuccess",
+        "responses": {
+          "400": {
+            "description": "ruim",
+            "content": {}
+          },
+          "204": {
+            "description": "sem conteudo",
+            "content": {}
+          },
+          "200": {
+            "description": "ok",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "picked": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/broken-ref": {
+      "get": {
+        "operationId": "BrokenRef",
+        "responses": {
+          "200": {
+            "description": "ok",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DoesNotExist"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/all-methods/{id}": {
+      "get": {
+        "operationId": "MethodGet",
+        "responses": {
+          "200": {
+            "description": "ok",
+            "content": {}
+          }
+        }
+      },
+      "post": {
+        "operationId": "MethodPost",
+        "responses": {
+          "200": {
+            "description": "ok",
+            "content": {}
+          }
+        }
+      },
+      "put": {
+        "operationId": "MethodPut",
+        "responses": {
+          "200": {
+            "description": "ok",
+            "content": {}
+          }
+        }
+      },
+      "patch": {
+        "operationId": "MethodPatch",
+        "responses": {
+          "200": {
+            "description": "ok",
+            "content": {}
+          }
+        }
+      },
+      "delete": {
+        "operationId": "MethodDelete",
+        "responses": {
+          "200": {
+            "description": "ok",
+            "content": {}
+          }
+        }
+      },
+      "head": {
+        "operationId": "MethodHead",
+        "responses": {
+          "200": {
+            "description": "ok",
+            "content": {}
+          }
+        }
+      }
+    },
+    "/weird-status": {
+      "get": {
+        "operationId": "WeirdStatus",
+        "responses": {
+          "default": {
+            "description": "padrao",
+            "content": {}
+          },
+          "200": {
+            "description": "ok",
+            "content": {}
+          }
+        }
+      }
+    },
+    "/invalid-status": {
+      "get": {
+        "operationId": "InvalidStatus",
+        "responses": {
+          "0": {
+            "description": "zero",
+            "content": {}
+          },
+          "999": {
+            "description": "fora da faixa",
+            "content": {}
+          },
+          "1e3": {
+            "description": "notacao exponencial",
+            "content": {}
+          },
+          "": {
+            "description": "vazio",
+            "content": {}
+          },
+          "200": {
+            "description": "ok",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "ok": {
+                      "type": "boolean"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "Base": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "integer"
+          },
+          "kind": {
+            "type": "string"
+          }
+        }
+      },
+      "Merged": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/Base"
+          },
+          {
+            "type": "object",
+            "properties": {
+              "extra": {
+                "type": "boolean"
+              }
+            }
+          }
+        ]
+      },
+      "Node": {
+        "type": "object",
+        "properties": {
+          "label": {
+            "type": "string"
+          },
+          "child": {
+            "$ref": "#/components/schemas/Node"
+          }
+        }
+      }
+    }
+  }
+}

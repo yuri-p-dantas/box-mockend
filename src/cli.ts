@@ -1,0 +1,119 @@
+#!/usr/bin/env node
+import { existsSync } from 'node:fs'
+import { resolve } from 'node:path'
+import { parseArgs } from 'node:util'
+import { createMockend } from './index.js'
+import type { MockendConfig, RouteDefinition } from './types.js'
+
+const DEFAULTS = { port: 4000, host: '0.0.0.0', delay: 0 }
+
+const USAGE = `
+box-mockend — servidor HTTP de mock orientado por OpenAPI
+
+  box-mockend --spec <caminho> [opções]
+
+Opções
+  --spec <caminho>   Spec OpenAPI 3.x em JSON ou YAML (obrigatório)
+  --port <número>    Porta HTTP (padrão: ${DEFAULTS.port})
+  --host <endereço>  Interface de bind (padrão: ${DEFAULTS.host})
+  --delay <ms>       Atraso global aplicado antes de cada resposta (padrão: ${DEFAULTS.delay})
+  --help             Mostra esta ajuda
+
+Exemplo
+  box-mockend --spec ./examples/somastore-openapi.json --port 4000 --delay 300
+`.trim()
+
+function fail(message: string): never {
+  console.error(`box-mockend: ${message}`)
+  process.exit(1)
+}
+
+function toPositiveInteger(value: string | undefined, fallback: number, flag: string): number {
+  if (value === undefined) return fallback
+
+  const parsed = Number(value)
+  if (!Number.isInteger(parsed) || parsed < 0) fail(`${flag} precisa ser um inteiro não negativo (recebido: "${value}")`)
+
+  return parsed
+}
+
+function parseConfig(): MockendConfig {
+  const { values } = parseArgs({
+    options: {
+      spec: { type: 'string' },
+      port: { type: 'string' },
+      host: { type: 'string' },
+      delay: { type: 'string' },
+      help: { type: 'boolean', default: false },
+    },
+    allowPositionals: false,
+  })
+
+  if (values.help) {
+    console.log(USAGE)
+    process.exit(0)
+  }
+
+  if (!values.spec) fail(`--spec é obrigatório.\n\n${USAGE}`)
+
+  const spec = resolve(values.spec)
+  if (!existsSync(spec)) fail(`spec não encontrada: ${spec}`)
+
+  return {
+    spec,
+    port: toPositiveInteger(values.port, DEFAULTS.port, '--port'),
+    host: values.host ?? DEFAULTS.host,
+    delay: toPositiveInteger(values.delay, DEFAULTS.delay, '--delay'),
+  }
+}
+
+function printRouteTable(routes: RouteDefinition[]): void {
+  if (routes.length === 0) {
+    console.log('Nenhuma rota encontrada na spec.')
+    return
+  }
+
+  const methodWidth = Math.max(...routes.map((route) => route.method.length))
+  const pathWidth = Math.max(...routes.map((route) => route.fastifyPath.length))
+
+  const sorted = [...routes].sort(
+    (a, b) => a.fastifyPath.localeCompare(b.fastifyPath) || a.method.localeCompare(b.method),
+  )
+
+  for (const route of sorted) {
+    const statuses = route.responses.map((response) => response.statusCode).join(',') || '—'
+    console.log(
+      `  ${route.method.padEnd(methodWidth)}  ${route.fastifyPath.padEnd(pathWidth)}  ` +
+        `${statuses}${route.operationId ? `  (${route.operationId})` : ''}`,
+    )
+  }
+}
+
+async function main(): Promise<void> {
+  const config = parseConfig()
+  const { server, routes, warnings } = await createMockend(config)
+
+  console.log(`\nbox-mockend\n  spec: ${config.spec}`)
+
+  if (warnings.length > 0) {
+    console.log(`\n${warnings.length} aviso(s) sobre a spec:`)
+    for (const warning of warnings) console.log(`  ! ${warning}`)
+  }
+
+  console.log(`\n${routes.length} rota(s) registrada(s):`)
+  printRouteTable(routes)
+
+  await server.listen({ host: config.host, port: config.port })
+
+  const displayHost = config.host === '0.0.0.0' ? 'localhost' : config.host
+  console.log(`\nOuvindo em http://${displayHost}:${config.port}`)
+  if (config.host === '0.0.0.0') {
+    console.log('  (0.0.0.0 — acessível também por emulador Android e dispositivos na mesma rede)')
+  }
+  if (config.delay > 0) console.log(`  atraso global: ${config.delay}ms`)
+  console.log()
+}
+
+main().catch((error: unknown) => {
+  fail(error instanceof Error ? error.message : String(error))
+})

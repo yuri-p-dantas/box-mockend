@@ -1,0 +1,24 @@
+openapi: 3.0.1
+info:
+  title: Minimal API
+  version: "1.0.0"
+paths:
+  /ping:
+    get:
+      operationId: Ping
+      responses:
+        "200":
+          description: pong
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Pong"
+components:
+  schemas:
+    Pong:
+      type: object
+      properties:
+        ok:
+          type: boolean
+        message:
+          type: string
