@@ -148,17 +148,24 @@ export function generate(schema: SchemaNode | null | undefined, maxDepth = DEFAU
 }
 
 /**
- * Monta o corpo de uma resposta seguindo a precedência do contrato:
- * example da resposta → example do schema → enum → geração por type.
+ * Monta o corpo de uma resposta seguindo a precedência:
+ * mock em arquivo → example da resposta → example do schema → enum → type.
+ *
+ * O mock ganha inclusive de um `example` declarado na spec: o que o
+ * desenvolvedor escreveu à mão é deliberado, o exemplo do contrato é genérico.
+ * Se fosse o contrário, o override deixaria de funcionar justamente nas rotas
+ * que têm exemplo — o comportamento mais difícil de diagnosticar.
+ *
+ * O mock substitui o corpo inteiro; nunca há merge com o dado gerado.
  *
  * Os três últimos níveis são aplicados por `generate` em cada nó do schema.
  * Devolve `undefined` quando a spec não declara corpo para a resposta.
  */
-export function buildBody(response: {
-  contentType: string | null
-  schema: SchemaNode | null
-  example: unknown
-}): unknown {
+export function buildBody(
+  response: { contentType: string | null; schema: SchemaNode | null; example: unknown },
+  mock?: unknown,
+): unknown {
+  if (mock !== undefined) return mock
   if (response.example !== undefined) return response.example
   if (response.contentType === null) return undefined
 

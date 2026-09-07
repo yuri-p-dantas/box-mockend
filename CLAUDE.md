@@ -13,6 +13,12 @@ ao mexer no código.
 Não existe conhecimento de API específica no código: nenhum endpoint, schema ou regra da
 Soma Store — ou de qualquer outra API — pode aparecer em `src/`.
 
+> **Mocks fornecem dados, nunca contrato.**
+
+Um arquivo de mock contém só o corpo. Ele não declara path, método, status nem
+content-type, e **nunca cria uma rota** — arquivo sem operação correspondente é ignorado
+com aviso. A OpenAPI segue sendo a fonte única do que existe.
+
 Os outros três, em ordem de importância:
 
 1. **Simplicidade acima de extensibilidade.** Sem interfaces, dependency injection, plugins
@@ -42,13 +48,24 @@ Três dependências de runtime, e a intenção é que continue assim:
 
 ```
 cli.ts → createMockend()
-           ├─ loader.loadSpec()      lê JSON/YAML, resolve $ref
-           ├─ normalizer.normalize() → RouteDefinition[]
-           └─ createServer()         registra as rotas no Fastify
+           ├─ loader.loadSpec()       lê JSON/YAML, resolve $ref
+           ├─ normalizer.normalize()  → RouteDefinition[]
+           ├─ overrides.resolveMocks() anexa mockFile e denuncia órfãos
+           └─ createServer()          registra as rotas no Fastify
        → tabela de rotas → listen
 
-requisição → selectResponse() → buildBody() → delay → reply
+requisição → selectResponse() → readMock() → buildBody() → delay → reply
 ```
+
+Precedência do corpo, centralizada em `buildBody`:
+**mock em arquivo → example da resposta → example do schema → enum → type.**
+O mock ganha inclusive do `example` da spec — o arquivo é deliberado, o exemplo é
+genérico — e substitui o corpo inteiro, sem merge.
+
+`RouteDefinition.mockFile` guarda o **caminho**, não o conteúdo. A leitura acontece a cada
+requisição, o que dá recarga automática sem watcher: editar, criar e apagar o arquivo
+valem na hora. JSON inválido responde 500 `MOCKEND_INVALID_MOCK` em vez de cair em
+silêncio para o dado gerado.
 
 ## A spec de exemplo é fixture, não configuração
 
@@ -78,4 +95,14 @@ fixos nesses testes (43 rotas, 3 avisos, 38 com corpo JSON, 4 sem corpo) são in
 se mudarem, entenda o porquê antes de atualizar.
 
 `tests/fixtures/edge-cases.json` cobre o que a spec real não tem: `oneOf`, `anyOf`, schema
-recursivo, array sem `items`, operação sem respostas, status não numérico.
+recursivo, array sem `items`, operação sem respostas, status inválido.
+
+`tests/mocks.test.ts` usa diretórios temporários (`mkdtemp`) em vez de fixtures fixas,
+porque precisa escrever, editar e apagar arquivos durante o teste para exercitar a recarga.
+
+## Armadilhas conhecidas
+
+- **`Dirent.parentPath` não existe no Node 20.9** (só `path`, renomeado na 20.12).
+  `overrides.ts` usa recursão explícita em vez de `readdir({ recursive: true })` por isso.
+- **Vitest 5 exige Node ≥ 20.12** (`styleText`). Daí o pin em 3.x.
+- **`@apidevtools/swagger-parser` quebra no Node 20** com `ERR_REQUIRE_ESM`.

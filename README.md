@@ -32,6 +32,7 @@ box-mockend --spec <caminho> [opções]
   --port <número>    Porta HTTP (padrão: 4000)
   --host <endereço>  Interface de bind (padrão: 0.0.0.0)
   --delay <ms>       Atraso global antes de cada resposta (padrão: 0)
+  --mocks <dir>      Diretório com mocks por rota (padrão: ./mocks, se existir)
   --help             Ajuda
 ```
 
@@ -42,17 +43,79 @@ O bind padrão é `0.0.0.0`, então o servidor também é alcançável pelo emul
 
 Use `--delay` para exercitar estados de carregamento na interface.
 
+## Mocks por rota
+
+O OpenAPI descreve o **contrato**: o que existe, com que método e que status. Mas o corpo
+gerado a partir do schema é genérico — na prática, `"string"` e `0` em todo campo que o
+contrato não exemplifica. Para desenvolver uma tela de verdade você precisa dos **dados**.
+
+Então: **a OpenAPI é o contrato, o mock é o dado.** Você fornece o corpo num arquivo
+separado, sem tocar na spec.
+
+O caminho do arquivo espelha a URL, e o método é o nome do arquivo:
+
+```
+GET  /v1/product/list              →  mocks/v1/product/list/GET.json
+GET  /v1/cart/{cart_id}/shipping   →  mocks/v1/cart/[cart_id]/shipping/GET.json
+POST /order                        →  mocks/order/POST.json
+```
+
+O conteúdo é **apenas o corpo da resposta**:
+
+```json
+{
+  "data": [{ "id": "1001", "name": "Vestido Midi Plissado", "current_price": 899.9 }],
+  "metadata": { "total": 1 }
+}
+```
+
+Status e content-type continuam vindo da spec. Nada do contrato é reescrito no arquivo, e
+**um mock nunca cria uma rota**: arquivo que não corresponde a nenhuma operação é ignorado
+e reportado no startup. A OpenAPI segue sendo a fonte única do que existe.
+
+As rotas com mock aparecem marcadas na tabela de startup:
+
+```
+GET  /v1/product/list  200,401  (GetProductListV1)  [mock]
+```
+
+### Recarga sem reiniciar
+
+Os arquivos são lidos **a cada requisição**. Editar o JSON e recarregar a tela basta —
+não é preciso reiniciar o Mockend. Criar um arquivo novo passa a valer na hora, e apagá-lo
+volta a gerar a resposta pelo contrato.
+
+Se o JSON estiver inválido, a rota responde 500 com `MOCKEND_INVALID_MOCK` nomeando o
+arquivo. É proposital: cair em silêncio para o dado gerado esconderia o erro.
+
+### Campos fora do schema
+
+São permitidos, e esse é o caso de uso central — backend frequentemente entrega campo
+antes de documentar. O custo é que o mock pode divergir do contrato sem aviso, e você
+descobre em homologação. Vale conferir o mock contra a spec quando o backend publicar
+a versão nova.
+
+> **Dados sintéticos apenas.** Arquivos de mock são versionados e parecem dados de
+> produção. Nunca coloque dado real de cliente neles.
+
+Veja [examples/mocks/](examples/mocks/) para um exemplo funcionando.
+
 ## Como as respostas são montadas
 
 **Qual resposta:** a menor 2xx declarada na operação. Sem 2xx, a menor resposta declarada —
 uma operação que só documenta 404 devolve 404.
 
-**Qual corpo**, em ordem de precedência, aplicada em **cada nó** do schema:
+**Qual corpo**, em ordem de precedência:
 
-1. `example` da resposta
-2. `example` do schema
-3. primeiro valor do `enum`
-4. geração por `type`
+1. **mock em arquivo** (veja acima)
+2. `example` da resposta
+3. `example` do schema
+4. primeiro valor do `enum`
+5. geração por `type`
+
+Os níveis 2 a 5 são aplicados em **cada nó** do schema, o que aproveita `example`
+declarado em propriedade individual. O mock, quando existe, substitui o corpo inteiro —
+nunca há merge com o dado gerado.
 
 A geração por `type` é deliberadamente simples e **determinística** — a mesma requisição
 devolve sempre o mesmo corpo, sem faker e sem aleatoriedade. Arrays recebem 3 itens
@@ -71,6 +134,7 @@ com o header `x-mockend-error: true` e um corpo padronizado:
 | --- | --- | --- |
 | 404 | `MOCKEND_ROUTE_NOT_FOUND` | a rota não existe na spec carregada |
 | 501 | `MOCKEND_NO_RESPONSE_DEFINED` | a operação não declara nenhuma resposta |
+| 500 | `MOCKEND_INVALID_MOCK` | o arquivo de mock da rota não é um JSON válido |
 | 500 | `MOCKEND_INTERNAL_ERROR` | falha inesperada ao montar a resposta |
 
 ## Specs com defeito
@@ -83,6 +147,8 @@ Specs reais têm defeitos, e o Mockend prefere subir com aviso a não subir:
   os parâmetros continuam valendo pela declaração em `parameters`.
 - **Path sem barra inicial** (`v1/invoice`) ganha a barra.
 - **Tipo desconhecido** (como o `type: "file"` herdado de Swagger 2.0) vira `null`.
+- **Status fora da faixa HTTP** (`0`, `999`) é descartado com aviso, em vez de virar erro
+  na primeira requisição.
 
 Falha de parsing que impeça entender o documento, essa sim derruba o processo.
 
@@ -100,6 +166,7 @@ src/
   mock/
     select-response.ts  qual status devolver
     generate.ts         qual corpo devolver
+    overrides.ts        mocks por arquivo
 ```
 
 A única fronteira estrutural: **`src/mock` não conhece Fastify e `src/server` não conhece
@@ -123,7 +190,11 @@ tratados no código e cobertos por testes em `tests/somastore.test.ts`.
 
 ## Fora do escopo por ora
 
-Proxy para o backend real, fallback quando o backend cai, cenários por requisição,
-overrides por arquivo, estado em memória, autenticação simulada, validação de request e
-geração sofisticada de dados. A arquitetura comporta essas evoluções, mas nada foi
-abstraído antecipadamente para elas.
+Proxy para o backend real, fallback quando o backend cai, cenários por requisição
+(mockar 404/500 sob demanda), estado em memória, autenticação simulada, validação de
+request e geração sofisticada de dados. A arquitetura comporta essas evoluções, mas nada
+foi abstraído antecipadamente para elas.
+
+Quando o envelope com status e headers for necessário, ele entra por outro nome de arquivo
+(`GET.response.json`), nunca por uma chave dentro do JSON — assim nunca colide com um
+corpo que por acaso tenha um campo `status` ou `body`.

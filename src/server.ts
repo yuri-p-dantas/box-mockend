@@ -2,6 +2,7 @@ import { setTimeout as delay } from 'node:timers/promises'
 import Fastify, { type FastifyInstance, type FastifyReply, type FastifyRequest } from 'fastify'
 import cors from '@fastify/cors'
 import { buildBody } from './mock/generate.js'
+import { readMock } from './mock/overrides.js'
 import { selectResponse } from './mock/select-response.js'
 import type { MockendConfig, RouteDefinition } from './types.js'
 
@@ -35,7 +36,22 @@ function makeHandler(route: RouteDefinition, config: Pick<MockendConfig, 'delay'
       )
     }
 
-    const body = buildBody(response)
+    let mock: unknown
+    if (route.mockFile) {
+      try {
+        mock = await readMock(route.mockFile)
+      } catch (error) {
+        return sendMockendError(
+          reply,
+          500,
+          'MOCKEND_INVALID_MOCK',
+          `Não foi possível ler o mock ${route.mockFile}: ${error instanceof Error ? error.message : String(error)}`,
+          'Corrija o JSON do arquivo. Apagar o arquivo volta a gerar a resposta pelo contrato.',
+        )
+      }
+    }
+
+    const body = buildBody(response, mock)
 
     reply.code(response.statusCode)
     if (response.contentType) reply.header('content-type', response.contentType)

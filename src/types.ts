@@ -37,9 +37,10 @@ export interface MockResponse {
 }
 
 /**
- * Contrato entre `src/openapi` e `src/server`.
+ * Tudo o que o servidor precisa para servir uma rota.
  *
- * Quem produz não conhece Fastify; quem consome não conhece OpenAPI.
+ * É o contrato entre as metades do Mockend: quem produz não conhece Fastify;
+ * quem consome não conhece OpenAPI.
  */
 export interface RouteDefinition {
   method: HttpMethod
@@ -50,6 +51,13 @@ export interface RouteDefinition {
   operationId?: string
   /** Ordenadas por `statusCode` crescente. */
   responses: MockResponse[]
+  /**
+   * Arquivo de mock desta rota. Não vem da OpenAPI: é o caminho onde o usuário
+   * pode colocar um corpo próprio. Definido quando há um diretório de mocks
+   * configurado, exista o arquivo ou não — a existência é verificada a cada
+   * requisição, o que dá recarga automática sem watcher.
+   */
+  mockFile?: string
 }
 
 export interface MockendConfig {
@@ -58,4 +66,6 @@ export interface MockendConfig {
   host: string
   /** Atraso global em ms aplicado antes de cada resposta. */
   delay: number
+  /** Diretório com os mocks por rota. Ausente desativa a funcionalidade. */
+  mocks?: string
 }

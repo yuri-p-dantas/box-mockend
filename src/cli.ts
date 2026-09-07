@@ -5,7 +5,7 @@ import { parseArgs } from 'node:util'
 import { createMockend } from './index.js'
 import type { MockendConfig, RouteDefinition } from './types.js'
 
-const DEFAULTS = { port: 4000, host: '0.0.0.0', delay: 0 }
+const DEFAULTS = { port: 4000, host: '0.0.0.0', delay: 0, mocks: './mocks' }
 
 const USAGE = `
 box-mockend — servidor HTTP de mock orientado por OpenAPI
@@ -17,7 +17,17 @@ Opções
   --port <número>    Porta HTTP (padrão: ${DEFAULTS.port})
   --host <endereço>  Interface de bind (padrão: ${DEFAULTS.host})
   --delay <ms>       Atraso global aplicado antes de cada resposta (padrão: ${DEFAULTS.delay})
+  --mocks <dir>      Diretório com mocks por rota (padrão: ${DEFAULTS.mocks}, se existir)
   --help             Mostra esta ajuda
+
+Mocks por rota
+  O caminho do arquivo espelha a URL e o método é o nome do arquivo. O conteúdo
+  é apenas o corpo da resposta; status e content-type continuam vindo da spec.
+
+    GET /v1/cart/{cart_id}/shipping  →  mocks/v1/cart/[cart_id]/shipping/GET.json
+
+  Os arquivos são lidos a cada requisição: editar o JSON e recarregar a tela
+  basta, sem reiniciar o Mockend.
 
 Exemplo
   box-mockend --spec ./examples/somastore-openapi.json --port 4000 --delay 300
@@ -44,6 +54,7 @@ function parseConfig(): MockendConfig {
       port: { type: 'string' },
       host: { type: 'string' },
       delay: { type: 'string' },
+      mocks: { type: 'string' },
       help: { type: 'boolean', default: false },
     },
     allowPositionals: false,
@@ -64,7 +75,24 @@ function parseConfig(): MockendConfig {
     port: toPositiveInteger(values.port, DEFAULTS.port, '--port'),
     host: values.host ?? DEFAULTS.host,
     delay: toPositiveInteger(values.delay, DEFAULTS.delay, '--delay'),
+    mocks: resolveMocksDir(values.mocks),
   }
+}
+
+/**
+ * `--mocks` explícito precisa existir — apontar para o lugar errado é quase
+ * sempre erro de digitação, e falhar é melhor que ignorar em silêncio. Já o
+ * `./mocks` implícito é opcional por natureza.
+ */
+function resolveMocksDir(value: string | undefined): string | undefined {
+  if (value !== undefined) {
+    const explicit = resolve(value)
+    if (!existsSync(explicit)) fail(`diretório de mocks não encontrado: ${explicit}`)
+    return explicit
+  }
+
+  const byConvention = resolve(DEFAULTS.mocks)
+  return existsSync(byConvention) ? byConvention : undefined
 }
 
 function printRouteTable(routes: RouteDefinition[]): void {
@@ -82,18 +110,20 @@ function printRouteTable(routes: RouteDefinition[]): void {
 
   for (const route of sorted) {
     const statuses = route.responses.map((response) => response.statusCode).join(',') || '—'
+    const mocked = route.mockFile && existsSync(route.mockFile) ? '  [mock]' : ''
     console.log(
       `  ${route.method.padEnd(methodWidth)}  ${route.fastifyPath.padEnd(pathWidth)}  ` +
-        `${statuses}${route.operationId ? `  (${route.operationId})` : ''}`,
+        `${statuses}${route.operationId ? `  (${route.operationId})` : ''}${mocked}`,
     )
   }
 }
 
 async function main(): Promise<void> {
   const config = parseConfig()
-  const { server, routes, warnings } = await createMockend(config)
+  const { server, routes, warnings, mocksFound } = await createMockend(config)
 
   console.log(`\nbox-mockend\n  spec: ${config.spec}`)
+  if (config.mocks) console.log(`  mocks: ${config.mocks} (${mocksFound} encontrado(s))`)
 
   if (warnings.length > 0) {
     console.log(`\n${warnings.length} aviso(s) sobre a spec:`)
