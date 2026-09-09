@@ -45,6 +45,7 @@ box-mockend --spec <caminho> [opções]
   --host <endereço>  Interface de bind (padrão: 0.0.0.0)
   --delay <ms>       Atraso global antes de cada resposta (padrão: 0)
   --mocks <dir>      Diretório com mocks por rota (padrão: ./mocks, se existir)
+  --check-mocks      Audita os mocks contra os schemas da spec
   --help             Ajuda
 ```
 
@@ -103,9 +104,32 @@ arquivo. É proposital: cair em silêncio para o dado gerado esconderia o erro.
 ### Campos fora do schema
 
 São permitidos, e esse é o caso de uso central — backend frequentemente entrega campo
-antes de documentar. O custo é que o mock pode divergir do contrato sem aviso, e você
-descobre em homologação. Vale conferir o mock contra a spec quando o backend publicar
-a versão nova.
+antes de documentar.
+
+Para enxergar essas divergências, rode com `--check-mocks`:
+
+```bash
+yarn dev --check-mocks
+```
+
+```
+Divergências entre mocks e contrato:
+  Campos declarados nos mocks que a OpenAPI não descreve. Pode ser campo que o
+  backend real já devolve e o contrato ainda não documenta — não é necessariamente
+  erro no mock. Só nomes de propriedade são comparados; tipos não são validados.
+
+  [warning] GET /v1/product/list
+      o mock declara "data[].badge", que não existe no schema da resposta
+```
+
+É **auditoria, não validação**: não impede o servidor de subir nem o mock de ser
+servido. A comparação é só de nomes de propriedade, recursiva em objetos e arrays —
+não há validação de tipo e não usamos `ajv`.
+
+Divergência não é sinônimo de erro. Nos mocks de exemplo deste repositório, `badge` é
+invenção deliberada, mas `metadata.page_size` e `store.package_types[].modality` são
+campos que o backend real devolve e a OpenAPI não documenta. Nesse caso a lista vira
+insumo para o time de backend atualizar o contrato.
 
 > **Dados sintéticos apenas.** Arquivos de mock são versionados e parecem dados de
 > produção. Nunca coloque dado real de cliente neles.
@@ -121,12 +145,17 @@ uma operação que só documenta 404 devolve 404.
 
 1. **mock em arquivo** (veja acima)
 2. `example` da resposta
-3. `example` do schema
-4. primeiro valor do `enum`
-5. geração por `type`
+3. `examples` da resposta — o primeiro com `value`
+4. `example` do schema
+5. primeiro valor do `enum`
+6. geração por `type`
 
-Os níveis 2 a 5 são aplicados em **cada nó** do schema, o que aproveita `example`
-declarado em propriedade individual. O mock, quando existe, substitui o corpo inteiro —
+Os níveis 4 a 6 são aplicados em **cada nó** do schema, o que aproveita `example`
+declarado em propriedade individual.
+
+O nível 3 existe porque `examples` (plural) é a forma recomendada pela OpenAPI 3.x e a
+que a maioria dos geradores de spec produz. Entradas com apenas `externalValue` são
+puladas: o Mockend não busca URL. O mock, quando existe, substitui o corpo inteiro —
 nunca há merge com o dado gerado.
 
 A geração por `type` é deliberadamente simples e **determinística** — a mesma requisição
@@ -178,7 +207,7 @@ src/
   mock/
     select-response.ts  qual status devolver
     generate.ts         qual corpo devolver
-    overrides.ts        mocks por arquivo
+    overrides.ts        mocks por arquivo e auditoria contra o contrato
 ```
 
 A única fronteira estrutural: **`src/mock` não conhece Fastify e `src/server` não conhece

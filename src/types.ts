@@ -67,4 +67,6 @@ export interface MockendConfig {
   delay: number
   /** Diretório com os mocks por rota. Ausente desativa a funcionalidade. */
   mocks?: string
+  /** Audita os mocks contra os schemas da spec na subida. Só reporta. */
+  checkMocks?: boolean
 }

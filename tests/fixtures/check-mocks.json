@@ -1,0 +1,43 @@
+{
+  "openapi": "3.0.1",
+  "info": { "title": "Check Mocks", "version": "1.0.0" },
+  "paths": {
+    "/produto": {
+      "get": {
+        "operationId": "GetProduto",
+        "responses": { "200": { "description": "ok", "content": { "application/json": { "schema": {
+          "type": "object",
+          "properties": {
+            "id": { "type": "string" },
+            "preco": { "type": "number" },
+            "fabricante": { "type": "object", "properties": { "nome": { "type": "string" } } },
+            "tags": { "type": "array", "items": { "type": "object", "properties": { "label": { "type": "string" } } } }
+          }
+        } } } } }
+      }
+    },
+    "/livre": {
+      "get": {
+        "operationId": "GetLivre",
+        "responses": { "200": { "description": "ok", "content": { "application/json": { "schema": { "type": "object" } } } } }
+      }
+    },
+    "/composto": {
+      "get": {
+        "operationId": "GetComposto",
+        "responses": { "200": { "description": "ok", "content": { "application/json": { "schema": {
+          "allOf": [
+            { "type": "object", "properties": { "base": { "type": "string" } } },
+            { "type": "object", "properties": { "extra": { "type": "boolean" } } }
+          ]
+        } } } } }
+      }
+    },
+    "/sem-schema": {
+      "get": {
+        "operationId": "GetSemSchema",
+        "responses": { "200": { "description": "ok", "content": {} } }
+      }
+    }
+  }
+}

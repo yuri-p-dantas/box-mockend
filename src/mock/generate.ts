@@ -74,6 +74,20 @@ function resolveComposition(schema: SchemaNode): SchemaNode {
 }
 
 /**
+ * Achata a composição de um schema numa forma direta, com `properties` e `type`
+ * já resolvidos.
+ *
+ * Exportada porque a verificação de mocks (`overrides.ts`) precisa enxergar as
+ * mesmas propriedades que o gerador enxerga — duplicar o tratamento de `allOf`
+ * nos dois lugares faria as duas visões divergirem.
+ */
+export function resolveSchema(schema: SchemaNode | null | undefined): SchemaNode | null {
+  if (!isSchema(schema)) return null
+
+  return resolveComposition(flattenAllOf(schema))
+}
+
+/**
  * Deduz o tipo quando a spec não declara `type` — comum em schemas de resposta
  * escritos inline.
  */
@@ -97,10 +111,10 @@ function arrayLength(schema: SchemaNode): number {
 }
 
 function generateNode(schema: SchemaNode | null | undefined, depth: number, maxDepth: number): unknown {
-  if (!isSchema(schema)) return null
   if (depth > maxDepth) return null
 
-  const resolved = resolveComposition(flattenAllOf(schema))
+  const resolved = resolveSchema(schema)
+  if (!resolved) return null
 
   // Precedência do contrato, aplicada em todo nó — não só na raiz. É o que
   // aproveita os `example` declarados em propriedades individuais.

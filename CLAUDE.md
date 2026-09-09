@@ -57,8 +57,10 @@ cli.ts → createMockend()
 requisição → selectResponse() → readMock() → buildBody() → delay → reply
 ```
 
-Precedência do corpo, centralizada em `buildBody`:
-**mock em arquivo → example da resposta → example do schema → enum → type.**
+Precedência do corpo:
+**mock em arquivo → `example` → `examples` → example do schema → enum → type.**
+Os dois primeiros níveis ficam em `buildBody`; o `examples` plural é resolvido no
+normalizer, que já reduz `example`/`examples` a um único campo em `MockResponse`.
 O mock ganha inclusive do `example` da spec — o arquivo é deliberado, o exemplo é
 genérico — e substitui o corpo inteiro, sem merge.
 
@@ -66,6 +68,18 @@ genérico — e substitui o corpo inteiro, sem merge.
 requisição, o que dá recarga automática sem watcher: editar, criar e apagar o arquivo
 valem na hora. JSON inválido responde 500 `MOCKEND_INVALID_MOCK` em vez de cair em
 silêncio para o dado gerado.
+
+## Auditoria de mocks (`--check-mocks`)
+
+Compara os campos dos mocks com `schema.properties` da resposta e reporta os que o
+contrato não declara. **É auditoria, não validação**: não bloqueia a subida nem muda o
+que é servido. Só nomes de propriedade, recursivo em objetos e arrays, sem `ajv`.
+
+`resolveSchema` é exportada de `generate.ts` e usada nos dois lados de propósito: se a
+auditoria resolvesse `allOf` por conta própria, as duas visões do schema divergiriam.
+
+O texto do aviso precisa continuar deixando claro que divergência **não é sinônimo de
+erro no mock** — a causa mais comum é a OpenAPI estar atrasada em relação ao backend.
 
 ## A spec de exemplo é fixture, não configuração
 

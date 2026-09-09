@@ -1,6 +1,8 @@
 import { readdir, readFile } from 'node:fs/promises'
 import { join, relative, sep } from 'node:path'
-import type { RouteDefinition } from '../types.js'
+import type { RouteDefinition, SchemaNode } from '../types.js'
+import { resolveSchema } from './generate.js'
+import { selectResponse } from './select-response.js'
 
 /**
  * Mocks por arquivo.
@@ -103,4 +105,90 @@ export async function resolveMocks(
   }
 
   return { routes: withMockFile, warnings, found: files.length - warnings.length }
+}
+
+/** Divergência entre um mock e o schema da resposta que ele substitui. */
+export interface MockContractIssue {
+  /** `GET /v1/product/list` */
+  route: string
+  /** Caminhos como `data[].badge`, na ordem em que aparecem no mock. */
+  fields: string[]
+}
+
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
+}
+
+/**
+ * Coleta os caminhos do mock que o schema não declara.
+ *
+ * Só compara nomes de propriedade — não valida tipo, formato nem obrigatoriedade.
+ * Schema sem `properties` (objeto livre) não gera achado: não há o que comparar.
+ *
+ * Limitação: `oneOf`/`anyOf` são resolvidos pelo primeiro ramo, igual ao
+ * gerador, então um campo válido só no segundo ramo apareceria como divergência.
+ */
+function collectUnknownFields(
+  value: unknown,
+  schema: SchemaNode | null,
+  path: string,
+  found: Set<string>,
+): void {
+  const resolved = resolveSchema(schema)
+  if (!resolved) return
+
+  if (Array.isArray(value)) {
+    // Todos os itens, não só o primeiro: elementos diferentes podem trazer
+    // campos diferentes. O Set cuida da repetição.
+    for (const item of value) collectUnknownFields(item, resolved.items ?? null, `${path}[]`, found)
+    return
+  }
+
+  if (!isPlainObject(value)) return
+
+  const properties = resolved.properties
+  if (!properties || Object.keys(properties).length === 0) return
+
+  for (const [key, child] of Object.entries(value)) {
+    const childPath = path ? `${path}.${key}` : key
+
+    if (key in properties) collectUnknownFields(child, properties[key] ?? null, childPath, found)
+    else found.add(childPath)
+  }
+}
+
+/**
+ * Compara cada mock com o schema da resposta que ele substitui.
+ *
+ * É auditoria, não validação: nada aqui impede o servidor de subir nem o mock de
+ * ser servido. Um campo fora do contrato costuma significar que a OpenAPI está
+ * atrasada em relação ao que o backend já devolve — por isso o resultado é uma
+ * lista de divergências, não de erros.
+ */
+export async function checkMocks(routes: RouteDefinition[]): Promise<MockContractIssue[]> {
+  const issues: MockContractIssue[] = []
+
+  for (const route of routes) {
+    if (!route.mockFile) continue
+
+    let mock: unknown
+    try {
+      mock = await readMock(route.mockFile)
+    } catch {
+      // JSON inválido já é reportado na requisição, com o arquivo nomeado.
+      continue
+    }
+
+    if (mock === undefined) continue
+
+    const response = selectResponse(route.responses)
+    if (!response?.schema) continue
+
+    const found = new Set<string>()
+    collectUnknownFields(mock, response.schema, '', found)
+
+    if (found.size > 0) issues.push({ route: `${route.method} ${route.fastifyPath}`, fields: [...found] })
+  }
+
+  return issues
 }

@@ -3,6 +3,7 @@ import { existsSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { parseArgs } from 'node:util'
 import { createMockend } from './index.js'
+import type { MockContractIssue } from './mock/overrides.js'
 import type { MockendConfig, RouteDefinition } from './types.js'
 
 const DEFAULTS = { port: 4000, host: '0.0.0.0', delay: 0, mocks: './mocks' }
@@ -18,6 +19,8 @@ Opções
   --host <endereço>  Interface de bind (padrão: ${DEFAULTS.host})
   --delay <ms>       Atraso global aplicado antes de cada resposta (padrão: ${DEFAULTS.delay})
   --mocks <dir>      Diretório com mocks por rota (padrão: ${DEFAULTS.mocks}, se existir)
+  --check-mocks      Compara os campos dos mocks com os schemas da spec e
+                     reporta divergências na subida (só reporta; não bloqueia)
   --help             Mostra esta ajuda
 
 Mocks por rota
@@ -55,6 +58,7 @@ function parseConfig(): MockendConfig {
       host: { type: 'string' },
       delay: { type: 'string' },
       mocks: { type: 'string' },
+      'check-mocks': { type: 'boolean', default: false },
       help: { type: 'boolean', default: false },
     },
     allowPositionals: false,
@@ -76,6 +80,7 @@ function parseConfig(): MockendConfig {
     host: values.host ?? DEFAULTS.host,
     delay: toPositiveInteger(values.delay, DEFAULTS.delay, '--delay'),
     mocks: resolveMocksDir(values.mocks),
+    checkMocks: values['check-mocks'],
   }
 }
 
@@ -118,9 +123,36 @@ function printRouteTable(routes: RouteDefinition[]): void {
   }
 }
 
+/**
+ * O cabeçalho explica uma vez que divergência não é sinônimo de erro no mock:
+ * na prática a causa mais comum é a OpenAPI estar atrasada em relação ao que o
+ * backend já devolve.
+ */
+function printMockIssues(issues: MockContractIssue[]): void {
+  console.log('\nDivergências entre mocks e contrato:')
+
+  if (issues.length === 0) {
+    console.log('  nenhuma — todos os campos dos mocks estão declarados na spec')
+    return
+  }
+
+  console.log(
+    '  Campos declarados nos mocks que a OpenAPI não descreve. Pode ser campo que o\n' +
+      '  backend real já devolve e o contrato ainda não documenta — não é necessariamente\n' +
+      '  erro no mock. Só nomes de propriedade são comparados; tipos não são validados.\n',
+  )
+
+  for (const issue of issues) {
+    console.log(`  [warning] ${issue.route}`)
+    for (const field of issue.fields) {
+      console.log(`      o mock declara "${field}", que não existe no schema da resposta`)
+    }
+  }
+}
+
 async function main(): Promise<void> {
   const config = parseConfig()
-  const { server, routes, warnings, mocksFound } = await createMockend(config)
+  const { server, routes, warnings, mocksFound, mockIssues } = await createMockend(config)
 
   console.log(`\nbox-mockend\n  spec: ${config.spec}`)
   if (config.mocks) console.log(`  mocks: ${config.mocks} (${mocksFound} encontrado(s))`)
@@ -132,6 +164,8 @@ async function main(): Promise<void> {
 
   console.log(`\n${routes.length} rota(s) registrada(s):`)
   printRouteTable(routes)
+
+  if (config.checkMocks) printMockIssues(mockIssues)
 
   await server.listen({ host: config.host, port: config.port })
 
