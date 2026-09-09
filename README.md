@@ -22,7 +22,19 @@ passada em `--spec`.
 
 ```bash
 yarn install
-yarn mockend --spec ./examples/somastore-openapi.json --port 4000
+yarn dev          # sobe com a spec e os mocks de examples/
+```
+
+`yarn dev` é um atalho para a spec de exemplo. Para qualquer outra spec, use `yarn mockend`:
+
+```bash
+yarn mockend --spec ./caminho/da/spec.yaml --port 4000
+```
+
+Argumentos extras passados ao `yarn dev` sobrescrevem os padrões:
+
+```bash
+yarn dev --port 5000 --delay 300
 ```
 
 ```

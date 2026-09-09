@@ -100,6 +100,18 @@ describe('servidor com a spec de casos de borda', () => {
     expect(response.json()).toEqual({ ok: true })
   })
 
+  it('serve o corpo vindo de examples (plural)', async () => {
+    const response = await server.inject({ method: 'GET', url: '/examples-plural' })
+
+    expect(response.json()).toEqual({ nome: 'do examples plural', preco: 10 })
+  })
+
+  it('cai para a geração por type quando examples está vazio', async () => {
+    const response = await server.inject({ method: 'GET', url: '/examples-empty' })
+
+    expect(response.json()).toEqual({ nome: 'string', preco: 0 })
+  })
+
   it('registra os cinco métodos do MVP', async () => {
     for (const method of ['GET', 'POST', 'PUT', 'PATCH', 'DELETE'] as const) {
       const response = await server.inject({ method, url: '/all-methods/123' })

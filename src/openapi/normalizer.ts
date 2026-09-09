@@ -6,9 +6,16 @@ export interface NormalizeResult {
   warnings: string[]
 }
 
+interface ExampleObject {
+  value?: unknown
+  /** Exemplo hospedado fora do documento. O Mockend não busca URL, então ignora. */
+  externalValue?: string
+}
+
 interface MediaTypeObject {
   schema?: SchemaNode | null
   example?: unknown
+  examples?: Record<string, ExampleObject | null> | null
 }
 
 interface ResponseObject {
@@ -64,6 +71,30 @@ function selectMediaType(
   return { contentType, media }
 }
 
+/**
+ * Extrai o exemplo declarado no media type.
+ *
+ * `example` (singular) vence `examples` (plural) quando os dois existem — a
+ * comparação é com `undefined` de propósito, para que um `example: null`
+ * explícito continue ganhando.
+ *
+ * A forma plural é a recomendada pela OpenAPI 3.x e a que a maioria dos
+ * geradores de spec produz; ignorá-la deixaria essas specs sem exemplo nenhum.
+ * Sem `examples` nomeado escolhido por configuração: vale o primeiro que tiver
+ * `value`. Entradas com apenas `externalValue` são puladas, já que o Mockend
+ * não busca URL.
+ */
+function selectExample(media: MediaTypeObject | null): unknown {
+  if (media?.example !== undefined) return media.example
+  if (!media?.examples) return undefined
+
+  for (const example of Object.values(media.examples)) {
+    if (example && typeof example === 'object' && 'value' in example) return example.value
+  }
+
+  return undefined
+}
+
 function normalizeResponses(
   responses: Record<string, unknown>,
   operationLabel: string,
@@ -100,7 +131,7 @@ function normalizeResponses(
       statusCode,
       contentType: selected.contentType,
       schema: selected.media?.schema ?? null,
-      example: selected.media?.example,
+      example: selectExample(selected.media),
     })
   }
 

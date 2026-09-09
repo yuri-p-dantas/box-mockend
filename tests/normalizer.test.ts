@@ -75,6 +75,52 @@ describe('normalize', () => {
     expect(warnings.some((warning) => warning.includes('"default"'))).toBe(true)
   })
 
+  describe('examples do media type', () => {
+    it('usa o primeiro examples (plural) quando não há example singular', async () => {
+      const { document } = await loadSpec(fixture('edge-cases.json'))
+      const { routes } = normalize(document)
+
+      expect(find(routes, 'GET', '/examples-plural')?.responses[0].example).toEqual({
+        nome: 'do examples plural',
+        preco: 10,
+      })
+    })
+
+    it('dá precedência ao example singular quando os dois existem', async () => {
+      const { document } = await loadSpec(fixture('edge-cases.json'))
+      const { routes } = normalize(document)
+
+      expect(find(routes, 'GET', '/examples-both')?.responses[0].example).toEqual({
+        nome: 'do example singular',
+        preco: 1,
+      })
+    })
+
+    it('mantém um example singular null vencendo o plural', async () => {
+      const { document } = await loadSpec(fixture('edge-cases.json'))
+      const { routes } = normalize(document)
+
+      expect(find(routes, 'GET', '/example-null')?.responses[0].example).toBeNull()
+    })
+
+    it('pula entradas com apenas externalValue, que o Mockend não busca', async () => {
+      const { document } = await loadSpec(fixture('edge-cases.json'))
+      const { routes } = normalize(document)
+
+      expect(find(routes, 'GET', '/examples-external')?.responses[0].example).toEqual({
+        nome: 'primeiro com value',
+        preco: 3,
+      })
+    })
+
+    it('trata examples vazio como ausência de exemplo', async () => {
+      const { document } = await loadSpec(fixture('edge-cases.json'))
+      const { routes } = normalize(document)
+
+      expect(find(routes, 'GET', '/examples-empty')?.responses[0].example).toBeUndefined()
+    })
+  })
+
   it('descarta status fora da faixa HTTP e avisa', async () => {
     const { document } = await loadSpec(fixture('edge-cases.json'))
     const { routes, warnings } = normalize(document)

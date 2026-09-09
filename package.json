@@ -18,6 +18,7 @@
   ],
   "scripts": {
     "mockend": "tsx src/cli.ts",
+    "dev": "tsx src/cli.ts --spec ./examples/somastore-openapi.json --mocks ./examples/mocks",
     "build": "tsc -p tsconfig.build.json",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",

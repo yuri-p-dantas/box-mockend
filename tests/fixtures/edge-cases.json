@@ -322,6 +322,178 @@
           }
         }
       }
+    },
+    "/examples-plural": {
+      "get": {
+        "operationId": "ExamplesPlural",
+        "responses": {
+          "200": {
+            "description": "ok",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "nome": {
+                      "type": "string"
+                    },
+                    "preco": {
+                      "type": "number"
+                    }
+                  }
+                },
+                "examples": {
+                  "primeiro": {
+                    "value": {
+                      "nome": "do examples plural",
+                      "preco": 10
+                    }
+                  },
+                  "segundo": {
+                    "value": {
+                      "nome": "nao deve vencer",
+                      "preco": 20
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/examples-both": {
+      "get": {
+        "operationId": "ExamplesBoth",
+        "responses": {
+          "200": {
+            "description": "ok",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "nome": {
+                      "type": "string"
+                    },
+                    "preco": {
+                      "type": "number"
+                    }
+                  }
+                },
+                "example": {
+                  "nome": "do example singular",
+                  "preco": 1
+                },
+                "examples": {
+                  "ignorado": {
+                    "value": {
+                      "nome": "do examples plural",
+                      "preco": 2
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/examples-external": {
+      "get": {
+        "operationId": "ExamplesExternal",
+        "responses": {
+          "200": {
+            "description": "ok",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "nome": {
+                      "type": "string"
+                    },
+                    "preco": {
+                      "type": "number"
+                    }
+                  }
+                },
+                "examples": {
+                  "remoto": {
+                    "externalValue": "https://example.com/payload.json"
+                  },
+                  "local": {
+                    "value": {
+                      "nome": "primeiro com value",
+                      "preco": 3
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/examples-empty": {
+      "get": {
+        "operationId": "ExamplesEmpty",
+        "responses": {
+          "200": {
+            "description": "ok",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "nome": {
+                      "type": "string"
+                    },
+                    "preco": {
+                      "type": "number"
+                    }
+                  }
+                },
+                "examples": {}
+              }
+            }
+          }
+        }
+      }
+    },
+    "/example-null": {
+      "get": {
+        "operationId": "ExampleNull",
+        "responses": {
+          "200": {
+            "description": "ok",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "nome": {
+                      "type": "string"
+                    },
+                    "preco": {
+                      "type": "number"
+                    }
+                  }
+                },
+                "example": null,
+                "examples": {
+                  "ignorado": {
+                    "value": {
+                      "nome": "nao deve vencer",
+                      "preco": 4
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
     }
   },
   "components": {
