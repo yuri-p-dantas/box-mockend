@@ -22,7 +22,6 @@ export interface SchemaNode {
   minItems?: number
   maxItems?: number
   minimum?: number
-  nullable?: boolean
   [keyword: string]: unknown
 }
 

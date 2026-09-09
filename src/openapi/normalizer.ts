@@ -58,13 +58,12 @@ export function toFastifyPath(openapiPath: string, warnings: string[] = []): str
  * Escolhe o media type de uma resposta.
  *
  * Prefere JSON casando por prefixo, para não perder `application/json; charset=utf-8`.
+ * O chamador garante que `content` tem ao menos uma entrada.
  */
 function selectMediaType(
   content: Record<string, MediaTypeObject | null>,
-): { contentType: string; media: MediaTypeObject | null } | null {
+): { contentType: string; media: MediaTypeObject | null } {
   const entries = Object.entries(content)
-  if (entries.length === 0) return null
-
   const json = entries.find(([contentType]) => contentType.toLowerCase().startsWith(JSON_MEDIA_TYPE))
   const [contentType, media] = json ?? entries[0]
 
@@ -122,10 +121,6 @@ function normalizeResponses(
     }
 
     const selected = selectMediaType(content)
-    if (!selected) {
-      mockResponses.push({ statusCode, contentType: null, schema: null, example: undefined })
-      continue
-    }
 
     mockResponses.push({
       statusCode,

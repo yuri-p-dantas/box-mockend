@@ -1,5 +1,5 @@
 import { resolve } from 'node:path'
-import { describe, expect, it } from 'vitest'
+import { beforeAll, describe, expect, it } from 'vitest'
 import { loadSpec } from '../src/openapi/loader.js'
 
 const fixture = (name: string) => resolve(import.meta.dirname, 'fixtures', name)
@@ -37,17 +37,21 @@ describe('loadSpec', () => {
   })
 
   describe('spec real da Soma Store', () => {
-    it('carrega apesar do $ref quebrado e reporta o problema como aviso', async () => {
-      const { document, warnings } = await loadSpec(SOMASTORE)
+    // 196 KB: carregar uma vez só para os dois testes.
+    let loaded: Awaited<ReturnType<typeof loadSpec>>
 
-      expect(Object.keys(document.paths ?? {})).toHaveLength(35)
-      expect(warnings).toHaveLength(1)
-      expect(warnings[0]).toContain('IFrameAddress')
+    beforeAll(async () => {
+      loaded = await loadSpec(SOMASTORE)
     })
 
-    it('deixa null no nó que não pôde ser resolvido e mantém o resto resolvido', async () => {
-      const { document } = await loadSpec(SOMASTORE)
-      const schemas = (document as any).components.schemas
+    it('carrega apesar do $ref quebrado e reporta o problema como aviso', () => {
+      expect(Object.keys(loaded.document.paths ?? {})).toHaveLength(35)
+      expect(loaded.warnings).toHaveLength(1)
+      expect(loaded.warnings[0]).toContain('IFrameAddress')
+    })
+
+    it('deixa null no nó que não pôde ser resolvido e mantém o resto resolvido', () => {
+      const schemas = (loaded.document as any).components.schemas
 
       expect(schemas.IFrameCustomer.properties.address).toBeNull()
       expect(schemas.ManualIntegrationEditCharge.allOf[0].properties).toBeDefined()
