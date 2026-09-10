@@ -1,6 +1,6 @@
 import { readdir, readFile } from 'node:fs/promises'
-import { join, relative, sep } from 'node:path'
-import type { RouteDefinition, SchemaNode } from '../types.js'
+import { basename, dirname, join, relative } from 'node:path'
+import { parseHttpStatus, type RouteDefinition, type SchemaNode } from '../types.js'
 import { resolveSchema } from './generate.js'
 import { selectResponse } from './select-response.js'
 
@@ -11,19 +11,35 @@ import { selectResponse } from './select-response.js'
  * o dado que o frontend quer receber. Por isso o arquivo contém **apenas o
  * corpo**: nada da spec é reescrito, e um mock nunca cria uma rota.
  *
- * A rota é identificada pelo **caminho do arquivo**, que espelha a URL:
+ * A rota é identificada pelo **caminho do arquivo**, que espelha a URL, e o
+ * método é o último segmento. Duas formas convivem:
  *
- *   GET /v1/cart/{cart_id}/shipping  →  mocks/v1/cart/[cart_id]/shipping/GET.json
+ *   GET /v1/product/list  →  mocks/v1/product/list/GET.json        (resposta padrão)
+ *   GET /order/{id}       →  mocks/order/[id]/GET/200.json         (uma por status)
+ *                            mocks/order/[id]/GET/400.json
+ *
+ * A forma de arquivo único atende o caso comum, que é resposta única; a de
+ * diretório entra quando a rota precisa de mais de um cenário.
  */
 
-/** Caminho onde o mock desta rota deve estar, exista o arquivo ou não. */
-export function mockFilePath(mocksDir: string, route: RouteDefinition): string {
+/** Base dos mocks desta rota, sem extensão: `.../v1/product/list/GET`. */
+export function mockBasePath(mocksDir: string, route: RouteDefinition): string {
   const segments = route.fastifyPath
     .split('/')
     .filter(Boolean)
     .map((segment) => (segment.startsWith(':') ? `[${segment.slice(1)}]` : segment))
 
-  return join(mocksDir, ...segments, `${route.method}.json`)
+  return join(mocksDir, ...segments, route.method)
+}
+
+/** `<base>.json` — a resposta padrão da rota. */
+export function singleMockFile(base: string): string {
+  return `${base}.json`
+}
+
+/** `<base>/<status>.json` — o cenário daquele status. */
+export function statusMockFile(base: string, status: number): string {
+  return join(base, `${status}.json`)
 }
 
 /**
@@ -32,8 +48,8 @@ export function mockFilePath(mocksDir: string, route: RouteDefinition): string {
  * A leitura acontece a cada requisição de propósito: editar o JSON e recarregar
  * a tela passa a bastar, sem reiniciar o Mockend e sem uma linha de watcher.
  * Arquivo ausente devolve `undefined` — apagar o mock volta a gerar pelo
- * contrato. JSON inválido lança, para o servidor poder apontar o arquivo em vez
- * de cair em silêncio para o dado gerado.
+ * contrato. JSON inválido lança, para quem chamou poder apontar o arquivo em
+ * vez de cair em silêncio para o dado gerado.
  */
 export async function readMock(file: string): Promise<unknown> {
   let content: string
@@ -46,6 +62,62 @@ export async function readMock(file: string): Promise<unknown> {
   }
 
   return JSON.parse(content)
+}
+
+export interface MockLookup {
+  /** Arquivo que casou. Ausente significa que não há mock para este status. */
+  file?: string
+  /** Conteúdo, quando o arquivo existe e é JSON válido. */
+  body?: unknown
+  /** Mensagem de parsing, quando o arquivo existe mas está quebrado. */
+  error?: string
+}
+
+/**
+ * Localiza e lê o mock aplicável a um status.
+ *
+ * Ordem: `<base>/<status>.json` sempre; `<base>.json` apenas quando o status
+ * pedido é o padrão da rota. A condição importa — `<base>.json` significa "o
+ * corpo da resposta padrão", e servi-lo com status 400 entregaria o corpo de
+ * sucesso sob um status de erro.
+ */
+export async function lookupMock(
+  base: string,
+  status: number,
+  allowSingleFile: boolean,
+): Promise<MockLookup> {
+  const candidates = allowSingleFile
+    ? [statusMockFile(base, status), singleMockFile(base)]
+    : [statusMockFile(base, status)]
+
+  for (const file of candidates) {
+    try {
+      const body = await readMock(file)
+      if (body !== undefined) return { file, body }
+    } catch (error) {
+      return { file, error: error instanceof Error ? error.message : String(error) }
+    }
+  }
+
+  return {}
+}
+
+/** Status que têm arquivo de cenário hoje, em ordem crescente. */
+export async function listMockStatuses(base: string): Promise<number[]> {
+  let entries: string[]
+
+  try {
+    entries = await readdir(base)
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return []
+    throw error
+  }
+
+  return entries
+    .filter((name) => name.endsWith('.json'))
+    .map((name) => parseHttpStatus(basename(name, '.json')))
+    .filter((status): status is number => status !== null)
+    .sort((a, b) => a - b)
 }
 
 /**
@@ -68,51 +140,110 @@ async function listJsonFiles(directory: string): Promise<string[]> {
 }
 
 export interface ResolveMocksResult {
-  /** Rotas com `mockFile` preenchido. */
+  /** Rotas com `mockBase` preenchido. */
   routes: RouteDefinition[]
-  /** Arquivos que não correspondem a nenhuma rota, e quantos mocks foram encontrados. */
+  /** Arquivos órfãos e conflitos entre as duas formas. */
   warnings: string[]
+  /** Quantos arquivos casaram com alguma rota. */
   found: number
 }
 
+/** Status que a rota devolve quando ninguém pede outro. */
+function defaultStatusOf(route: RouteDefinition): number | undefined {
+  return selectResponse(route.responses)?.statusCode
+}
+
 /**
- * Associa cada rota ao seu arquivo de mock e denuncia arquivos órfãos.
+ * Associa cada rota à sua base de mocks e denuncia arquivos que não serão usados.
  *
- * O aviso de órfão é o que evita o pior modo de falha desta funcionalidade:
- * criar o mock, ele não ser aplicado, e não haver nenhuma pista do motivo.
+ * O aviso de órfão evita o pior modo de falha desta funcionalidade: criar o
+ * mock, ele não ser aplicado, e não haver nenhuma pista do motivo. Como agora
+ * aceitamos status que a spec não declara, a validade de um arquivo é
+ * estrutural (está no lugar certo, com nome de status válido?) e não uma
+ * comparação com uma lista fechada de caminhos.
  */
 export async function resolveMocks(
   routes: RouteDefinition[],
   mocksDir: string,
 ): Promise<ResolveMocksResult> {
-  const withMockFile = routes.map((route) => ({ ...route, mockFile: mockFilePath(mocksDir, route) }))
-  const expected = new Set(withMockFile.map((route) => route.mockFile))
+  const withBase = routes.map((route) => ({ ...route, mockBase: mockBasePath(mocksDir, route) }))
   const warnings: string[] = []
+
+  const singles = new Set(withBase.map((route) => singleMockFile(route.mockBase)))
+  const directories = new Set(withBase.map((route) => route.mockBase))
 
   let files: string[] = []
   try {
     files = await listJsonFiles(mocksDir)
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
-    return { routes: withMockFile, warnings, found: 0 }
+    return { routes: withBase, warnings, found: 0 }
   }
 
-  for (const file of files.filter((file) => !expected.has(file))) {
+  const present = new Set(files)
+  let found = 0
+
+  for (const file of files) {
+    const shown = relative(mocksDir, file)
+
+    if (singles.has(file)) {
+      found += 1
+      continue
+    }
+
+    if (directories.has(dirname(file))) {
+      const name = basename(file, '.json')
+
+      if (parseHttpStatus(name) === null) {
+        warnings.push(
+          `mock "${shown}" será ignorado: dentro da pasta de um método, o nome do arquivo ` +
+            'deve ser um status HTTP entre 100 e 599, como "200.json" ou "400.json"',
+        )
+        continue
+      }
+
+      found += 1
+      continue
+    }
+
     warnings.push(
-      `mock "${relative(mocksDir, file)}" não corresponde a nenhuma rota da spec e será ignorado ` +
-        `(o caminho deve espelhar a URL, com o método como nome do arquivo: v1/product/list${sep}GET.json)`,
+      `mock "${shown}" não corresponde a nenhuma rota da spec e será ignorado ` +
+        '(o caminho deve espelhar a URL, com o método como nome do arquivo — ' +
+        'v1/product/list/GET.json — ou como pasta, para cenários por status — ' +
+        'order/[order_id]/GET/400.json)',
     )
   }
 
-  return { routes: withMockFile, warnings, found: files.length - warnings.length }
+  // Conflito real: os dois formatos disputando o mesmo status. As demais
+  // combinações (por exemplo GET.json + GET/400.json) são uso misto legítimo.
+  for (const route of withBase) {
+    const status = defaultStatusOf(route)
+    if (status === undefined) continue
+
+    if (present.has(singleMockFile(route.mockBase)) && present.has(statusMockFile(route.mockBase, status))) {
+      warnings.push(
+        `${route.method} ${route.fastifyPath}: existem "${relative(mocksDir, singleMockFile(route.mockBase))}" e ` +
+          `"${relative(mocksDir, statusMockFile(route.mockBase, status))}" para o mesmo status ${status}; ` +
+          'a pasta vence e o arquivo único é ignorado',
+      )
+    }
+  }
+
+  return { routes: withBase, warnings, found }
 }
 
 /** Divergência entre um mock e o schema da resposta que ele substitui. */
 export interface MockContractIssue {
   /** `GET /v1/product/list` */
   route: string
+  /** Status que este arquivo de mock representa. */
+  status: number
+  /** Caminho do arquivo, relativo ao diretório de mocks. */
+  file: string
   /** Caminhos como `data[].badge`, na ordem em que aparecem no mock. */
   fields: string[]
+  /** A spec não declara este status — o mock está adicionando contrato. */
+  undeclaredStatus?: boolean
 }
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
@@ -157,37 +288,70 @@ function collectUnknownFields(
   }
 }
 
+/** Os arquivos de mock que existem hoje para uma rota, com o status de cada um. */
+async function listRouteMocks(
+  route: RouteDefinition,
+): Promise<{ status: number; file: string }[]> {
+  if (!route.mockBase) return []
+
+  const entries: { status: number; file: string }[] = []
+  const status = defaultStatusOf(route)
+
+  if (status !== undefined) {
+    const single = singleMockFile(route.mockBase)
+    if ((await readMock(single).catch(() => undefined)) !== undefined) {
+      entries.push({ status, file: single })
+    }
+  }
+
+  for (const found of await listMockStatuses(route.mockBase)) {
+    entries.push({ status: found, file: statusMockFile(route.mockBase, found) })
+  }
+
+  return entries
+}
+
 /**
  * Compara cada mock com o schema da resposta que ele substitui.
  *
  * É auditoria, não validação: nada aqui impede o servidor de subir nem o mock de
- * ser servido. Um campo fora do contrato costuma significar que a OpenAPI está
- * atrasada em relação ao que o backend já devolve — por isso o resultado é uma
- * lista de divergências, não de erros.
+ * ser servido. Reporta duas coisas: campo fora do schema — que costuma
+ * significar que a OpenAPI está atrasada em relação ao que o backend já devolve
+ * — e status que a spec não documenta, que é o mock adicionando contrato.
  */
-export async function checkMocks(routes: RouteDefinition[]): Promise<MockContractIssue[]> {
+export async function checkMocks(
+  routes: RouteDefinition[],
+  mocksDir?: string,
+): Promise<MockContractIssue[]> {
   const issues: MockContractIssue[] = []
 
   for (const route of routes) {
-    if (!route.mockFile) continue
+    for (const { status, file } of await listRouteMocks(route)) {
+      const shown = mocksDir ? relative(mocksDir, file) : file
+      const label = `${route.method} ${route.fastifyPath}`
 
-    let mock: unknown
-    try {
-      mock = await readMock(route.mockFile)
-    } catch {
-      // JSON inválido já é reportado na requisição, com o arquivo nomeado.
-      continue
+      let mock: unknown
+      try {
+        mock = await readMock(file)
+      } catch {
+        // JSON inválido já é reportado na requisição, com o arquivo nomeado.
+        continue
+      }
+
+      const response = selectResponse(route.responses, status)
+
+      if (!response) {
+        issues.push({ route: label, status, file: shown, fields: [], undeclaredStatus: true })
+        continue
+      }
+
+      if (!response.schema) continue
+
+      const found = new Set<string>()
+      collectUnknownFields(mock, response.schema, '', found)
+
+      if (found.size > 0) issues.push({ route: label, status, file: shown, fields: [...found] })
     }
-
-    if (mock === undefined) continue
-
-    const response = selectResponse(route.responses)
-    if (!response?.schema) continue
-
-    const found = new Set<string>()
-    collectUnknownFields(mock, response.schema, '', found)
-
-    if (found.size > 0) issues.push({ route: `${route.method} ${route.fastifyPath}`, fields: [...found] })
   }
 
   return issues

@@ -4,6 +4,21 @@ export const HTTP_METHODS = ['get', 'post', 'put', 'patch', 'delete'] as const
 export type HttpMethod = Uppercase<(typeof HTTP_METHODS)[number]>
 
 /**
+ * Converte um status vindo de texto em número, ou `null` se não for válido.
+ *
+ * Usada tanto para as chaves de `responses` da spec quanto para o `Prefer:
+ * code=` da requisição, para que os dois lados sigam exatamente a mesma regra:
+ * três dígitos entre 100 e 599. Recusa `""`, `"0"`, `"1e3"` e `"999"`.
+ */
+export function parseHttpStatus(raw: string): number | null {
+  if (!/^\d{3}$/.test(raw)) return null
+
+  const status = Number(raw)
+
+  return status >= 100 && status <= 599 ? status : null
+}
+
+/**
  * Subconjunto de JSON Schema que o gerador entende, já desreferenciado.
  *
  * Nós podem vir `null`: quando a spec tem um `$ref` quebrado, o loader mantém
@@ -51,12 +66,16 @@ export interface RouteDefinition {
   /** Ordenadas por `statusCode` crescente. */
   responses: MockResponse[]
   /**
-   * Arquivo de mock desta rota. Não vem da OpenAPI: é o caminho onde o usuário
-   * pode colocar um corpo próprio. Definido quando há um diretório de mocks
-   * configurado, exista o arquivo ou não — a existência é verificada a cada
-   * requisição, o que dá recarga automática sem watcher.
+   * Base para localizar os mocks desta rota, sem extensão. Não vem da OpenAPI.
+   *
+   *   `<base>.json`          → resposta padrão (formato original)
+   *   `<base>/<status>.json` → uma resposta por status
+   *
+   * Guardamos a base, não a lista de arquivos: a existência é verificada a cada
+   * requisição, o que mantém a recarga automática valendo inclusive para
+   * cenários criados depois da subida.
    */
-  mockFile?: string
+  mockBase?: string
 }
 
 export interface MockendConfig {

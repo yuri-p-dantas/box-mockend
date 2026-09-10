@@ -64,10 +64,34 @@ normalizer, que já reduz `example`/`examples` a um único campo em `MockRespons
 O mock ganha inclusive do `example` da spec — o arquivo é deliberado, o exemplo é
 genérico — e substitui o corpo inteiro, sem merge.
 
-`RouteDefinition.mockFile` guarda o **caminho**, não o conteúdo. A leitura acontece a cada
-requisição, o que dá recarga automática sem watcher: editar, criar e apagar o arquivo
-valem na hora. JSON inválido responde 500 `MOCKEND_INVALID_MOCK` em vez de cair em
-silêncio para o dado gerado.
+`RouteDefinition.mockBase` guarda o **caminho sem extensão**, não o conteúdo nem a lista
+de arquivos. `<base>.json` é a resposta padrão e `<base>/<status>.json` são os cenários.
+A existência é verificada a cada requisição, o que dá recarga automática sem watcher:
+editar, criar e apagar arquivos — inclusive cenários novos — valem na hora. Enumerar no
+boot mataria isso.
+
+## Cenários por status (`Prefer: code=`)
+
+`Prefer: code=400` (RFC 7240, não um `x-mockend-*` inventado) escolhe o cenário. A ordem:
+arquivo `<base>/400.json` → resposta 400 declarada na spec → **recusa explícita**.
+
+> **Nunca caia em silêncio para o 200 quando o status pedido não existir.**
+
+É a regra de segurança central desta funcionalidade: a tela mostraria sucesso e o dev
+concluiria que o tratamento de erro funciona sem nunca tê-lo exercitado. A recusa é
+`400 MOCKEND_NO_MOCK_FOR_STATUS` e **lista os status disponíveis**, que é o que resolve
+o problema na hora.
+
+`400` e não `501`: o 501 do RFC 9110 é orientado a método não suportado e — o argumento
+decisivo — é **cacheável por padrão**, o que numa ferramenta de alternar cenários seria
+péssimo. O `501` fica só para `MOCKEND_NO_RESPONSE_DEFINED`, onde a deficiência é do
+contrato e o cliente não tem como consertar mudando a requisição.
+
+`<base>.json` só serve o status padrão. Servi-lo sob um status de erro entregaria o corpo
+de sucesso com status errado — daí o parâmetro `allowSingleFile` de `lookupMock`.
+
+`parseHttpStatus` (em `types.ts`) é compartilhada entre o normalizer e o parsing do
+`Prefer` para que os dois lados sigam exatamente a mesma regra de status válido.
 
 ## Auditoria de mocks (`--check-mocks`)
 

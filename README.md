@@ -92,11 +92,59 @@ As rotas com mock aparecem marcadas na tabela de startup:
 GET  /v1/product/list  200,401  (GetProductListV1)  [mock]
 ```
 
+### Vários cenários na mesma rota
+
+Quando uma rota precisa de mais de uma resposta, o arquivo vira **pasta**, e cada status
+é um arquivo dentro dela:
+
+```
+mocks/order/[order_id]/
+├── GET.json          ← resposta padrão (formato simples, continua valendo)
+└── GET/
+    ├── 200.json      ← ou assim, um arquivo por status
+    ├── 400.json
+    └── 500.json
+```
+
+Para escolher o cenário, use o header padrão **`Prefer: code=<status>`** (RFC 7240):
+
+```bash
+curl http://localhost:4000/order/123                        # 200
+curl -H 'Prefer: code=400' http://localhost:4000/order/123  # 400
+```
+
+No frontend, um interceptor de axios/fetch ativo só em dev resolve — dá para ligar o
+cenário de erro numa tela sem afetar as outras.
+
+**Sem `Prefer`**, o comportamento é o de sempre: a menor 2xx da spec.
+
+**Com `Prefer: code=X`**, em ordem:
+
+| Situação | Resposta |
+| --- | --- |
+| existe `GET/X.json` | status X com o corpo do arquivo |
+| não existe, mas a spec declara X | status X com o corpo do contrato |
+| nem um nem outro | `400 MOCKEND_NO_MOCK_FOR_STATUS`, listando os status disponíveis |
+
+O último caso é deliberado: **cair em silêncio para o 200 seria o pior desfecho**. A tela
+mostraria sucesso e você concluiria que o tratamento de erro funciona sem nunca tê-lo
+exercitado.
+
+Como **28 das 43 rotas da spec de exemplo já declaram mais de um status**, o `Prefer`
+funciona em boa parte delas sem criar arquivo nenhum.
+
+`GET.json` só vale para o status padrão. Ele é *o corpo da resposta padrão*, e servi-lo
+sob um status de erro entregaria o corpo de sucesso com status errado.
+
+As duas formas convivem numa mesma rota: `GET.json` + `GET/400.json` é uso misto
+legítimo. O único conflito é ter `GET.json` e `GET/<statusPadrão>.json` ao mesmo tempo —
+aí a pasta vence e sai um aviso no startup.
+
 ### Recarga sem reiniciar
 
 Os arquivos são lidos **a cada requisição**. Editar o JSON e recarregar a tela basta —
-não é preciso reiniciar o Mockend. Criar um arquivo novo passa a valer na hora, e apagá-lo
-volta a gerar a resposta pelo contrato.
+não é preciso reiniciar o Mockend. Criar um arquivo novo passa a valer na hora, inclusive
+um cenário de status novo, e apagá-lo volta ao comportamento anterior.
 
 Se o JSON estiver inválido, a rota responde 500 com `MOCKEND_INVALID_MOCK` nomeando o
 arquivo. É proposital: cair em silêncio para o dado gerado esconderia o erro.
@@ -119,12 +167,17 @@ Divergências entre mocks e contrato:
   erro no mock. Só nomes de propriedade são comparados; tipos não são validados.
 
   [warning] GET /v1/product/list
-      o mock declara "data[].badge", que não existe no schema da resposta
+      GET/200.json declara "data[].badge", que não existe no schema do 200
+      GET/400.json declara o status 400, que a spec não documenta
 ```
 
 É **auditoria, não validação**: não impede o servidor de subir nem o mock de ser
 servido. A comparação é só de nomes de propriedade, recursiva em objetos e arrays —
 não há validação de tipo e não usamos `ajv`.
+
+A auditoria reporta duas coisas: **campo** fora do schema e **status** que a spec não
+documenta — este último aparece quando você cria um `400.json` numa rota que o contrato
+só descreve como 200.
 
 Divergência não é sinônimo de erro. Nos mocks de exemplo deste repositório, `badge` é
 invenção deliberada, mas `metadata.page_size` e `store.package_types[].modality` são
@@ -174,9 +227,15 @@ com o header `x-mockend-error: true` e um corpo padronizado:
 | Status | `error` | Quando |
 | --- | --- | --- |
 | 404 | `MOCKEND_ROUTE_NOT_FOUND` | a rota não existe na spec carregada |
+| 400 | `MOCKEND_INVALID_PREFER` | o `Prefer: code=` não é um status HTTP válido |
+| 400 | `MOCKEND_NO_MOCK_FOR_STATUS` | o status pedido não tem mock nem está no contrato |
+| 500 | `MOCKEND_INVALID_MOCK` | o arquivo de mock não é um JSON válido |
 | 501 | `MOCKEND_NO_RESPONSE_DEFINED` | a operação não declara nenhuma resposta |
-| 500 | `MOCKEND_INVALID_MOCK` | o arquivo de mock da rota não é um JSON válido |
 | 500 | `MOCKEND_INTERNAL_ERROR` | falha inesperada ao montar a resposta |
+
+A regra por trás dos códigos: **5xx quando o Mockend não consegue de jeito nenhum**
+(o contrato está vazio, algo quebrou), **4xx quando o que *você pediu* não está
+disponível**.
 
 ## Specs com defeito
 

@@ -4,7 +4,7 @@ import { join, resolve } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import type { FastifyInstance } from 'fastify'
 import { createMockend } from '../src/index.js'
-import { mockFilePath } from '../src/mock/overrides.js'
+import { mockBasePath, singleMockFile } from '../src/mock/overrides.js'
 import type { RouteDefinition } from '../src/types.js'
 
 const SOMASTORE = resolve(import.meta.dirname, '..', 'examples', 'somastore-openapi.json')
@@ -13,24 +13,31 @@ const EDGE_CASES = resolve(import.meta.dirname, 'fixtures', 'edge-cases.json')
 const route = (method: string, fastifyPath: string) =>
   ({ method, fastifyPath, openapiPath: fastifyPath, responses: [] }) as unknown as RouteDefinition
 
-describe('mockFilePath', () => {
+describe('mockBasePath', () => {
+  const single = (dir: string, method: string, path: string) =>
+    singleMockFile(mockBasePath(dir, route(method, path)))
+
   it('espelha a URL em diretórios com o método como nome do arquivo', () => {
-    expect(mockFilePath('/mocks', route('GET', '/v1/product/list'))).toBe('/mocks/v1/product/list/GET.json')
+    expect(single('/mocks', 'GET', '/v1/product/list')).toBe('/mocks/v1/product/list/GET.json')
   })
 
   it('usa [param] para parâmetros de path', () => {
-    expect(mockFilePath('/mocks', route('GET', '/v1/cart/:cart_id/shipping'))).toBe(
+    expect(single('/mocks', 'GET', '/v1/cart/:cart_id/shipping')).toBe(
       '/mocks/v1/cart/[cart_id]/shipping/GET.json',
     )
   })
 
   it('distingue métodos no mesmo path', () => {
-    expect(mockFilePath('/mocks', route('POST', '/order'))).toBe('/mocks/order/POST.json')
-    expect(mockFilePath('/mocks', route('DELETE', '/order'))).toBe('/mocks/order/DELETE.json')
+    expect(single('/mocks', 'POST', '/order')).toBe('/mocks/order/POST.json')
+    expect(single('/mocks', 'DELETE', '/order')).toBe('/mocks/order/DELETE.json')
   })
 
   it('lida com a raiz', () => {
-    expect(mockFilePath('/mocks', route('GET', '/'))).toBe('/mocks/GET.json')
+    expect(single('/mocks', 'GET', '/')).toBe('/mocks/GET.json')
+  })
+
+  it('devolve a base sem extensão, usada também para a pasta de cenários', () => {
+    expect(mockBasePath('/mocks', route('GET', '/v1/product/list'))).toBe('/mocks/v1/product/list/GET')
   })
 })
 
@@ -257,7 +264,7 @@ describe('mocks por arquivo', () => {
     const body = (await server.inject({ method: 'GET', url: '/v1/product/list' })).json()
 
     expect(body).not.toEqual({ naoDeveAparecer: true })
-    expect(mockend.routes.every((route) => route.mockFile === undefined)).toBe(true)
+    expect(mockend.routes.every((route) => route.mockBase === undefined)).toBe(true)
   })
 
   it('ignora diretório de mocks inexistente sem quebrar', async () => {

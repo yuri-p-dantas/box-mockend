@@ -33,7 +33,7 @@ export async function createMockend(config: MockendConfig): Promise<Mockend> {
   const server = await createServer(mocks.routes, config)
 
   // Auditoria: nunca impede a subida nem muda o que é servido.
-  const mockIssues = config.checkMocks ? await checkMocks(mocks.routes) : []
+  const mockIssues = config.checkMocks ? await checkMocks(mocks.routes, config.mocks) : []
 
   return {
     server,
@@ -48,7 +48,16 @@ export { loadSpec } from './openapi/loader.js'
 export { normalize, toFastifyPath } from './openapi/normalizer.js'
 export { createServer } from './server.js'
 export { buildBody, generate } from './mock/generate.js'
-export { checkMocks, mockFilePath, readMock, resolveMocks } from './mock/overrides.js'
-export type { MockContractIssue } from './mock/overrides.js'
+export {
+  checkMocks,
+  listMockStatuses,
+  lookupMock,
+  mockBasePath,
+  readMock,
+  resolveMocks,
+  singleMockFile,
+  statusMockFile,
+} from './mock/overrides.js'
+export type { MockContractIssue, MockLookup } from './mock/overrides.js'
 export { selectResponse } from './mock/select-response.js'
 export type { HttpMethod, MockendConfig, MockResponse, RouteDefinition, SchemaNode } from './types.js'

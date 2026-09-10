@@ -1,10 +1,11 @@
 #!/usr/bin/env node
-import { existsSync } from 'node:fs'
+import { existsSync, readdirSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { parseArgs } from 'node:util'
 import { createMockend } from './index.js'
+import { singleMockFile } from './mock/overrides.js'
 import type { MockContractIssue } from './mock/overrides.js'
-import type { MockendConfig, RouteDefinition } from './types.js'
+import { parseHttpStatus, type MockendConfig, type RouteDefinition } from './types.js'
 
 const DEFAULTS = { port: 4000, host: '0.0.0.0', delay: 0, mocks: './mocks' }
 
@@ -115,12 +116,35 @@ function printRouteTable(routes: RouteDefinition[]): void {
 
   for (const route of sorted) {
     const statuses = route.responses.map((response) => response.statusCode).join(',') || '—'
-    const mocked = route.mockFile && existsSync(route.mockFile) ? '  [mock]' : ''
     console.log(
       `  ${route.method.padEnd(methodWidth)}  ${route.fastifyPath.padEnd(pathWidth)}  ` +
-        `${statuses}${route.operationId ? `  (${route.operationId})` : ''}${mocked}`,
+        `${statuses}${route.operationId ? `  (${route.operationId})` : ''}${mockMarker(route)}`,
     )
   }
+}
+
+/**
+ * Retrato do momento da subida. Cenários criados depois funcionam na hora, mas
+ * só aparecem aqui no próximo start — a leitura em si é por requisição.
+ */
+function mockMarker(route: RouteDefinition): string {
+  if (!route.mockBase) return ''
+
+  const scenarios: string[] = []
+
+  if (existsSync(singleMockFile(route.mockBase))) scenarios.push('padrão')
+
+  try {
+    for (const name of readdirSync(route.mockBase).sort()) {
+      if (!name.endsWith('.json')) continue
+      const status = parseHttpStatus(name.slice(0, -'.json'.length))
+      if (status !== null) scenarios.push(String(status))
+    }
+  } catch {
+    // sem pasta de cenários para esta rota
+  }
+
+  return scenarios.length > 0 ? `  [mock ${scenarios.join(',')}]` : ''
 }
 
 /**
@@ -137,15 +161,23 @@ function printMockIssues(issues: MockContractIssue[]): void {
   }
 
   console.log(
-    '  Campos declarados nos mocks que a OpenAPI não descreve. Pode ser campo que o\n' +
-      '  backend real já devolve e o contrato ainda não documenta — não é necessariamente\n' +
+    '  O que os mocks declaram e a OpenAPI não descreve. Pode ser campo ou status que o\n' +
+      '  backend real já usa e o contrato ainda não documenta — não é necessariamente\n' +
       '  erro no mock. Só nomes de propriedade são comparados; tipos não são validados.\n',
   )
 
-  for (const issue of issues) {
-    console.log(`  [warning] ${issue.route}`)
-    for (const field of issue.fields) {
-      console.log(`      o mock declara "${field}", que não existe no schema da resposta`)
+  for (const route of [...new Set(issues.map((issue) => issue.route))]) {
+    console.log(`  [warning] ${route}`)
+
+    for (const issue of issues.filter((candidate) => candidate.route === route)) {
+      if (issue.undeclaredStatus) {
+        console.log(`      ${issue.file} declara o status ${issue.status}, que a spec não documenta`)
+        continue
+      }
+
+      for (const field of issue.fields) {
+        console.log(`      ${issue.file} declara "${field}", que não existe no schema do ${issue.status}`)
+      }
     }
   }
 }

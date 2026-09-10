@@ -1,4 +1,11 @@
-import { HTTP_METHODS, type HttpMethod, type MockResponse, type RouteDefinition, type SchemaNode } from '../types.js'
+import {
+  HTTP_METHODS,
+  parseHttpStatus,
+  type HttpMethod,
+  type MockResponse,
+  type RouteDefinition,
+  type SchemaNode,
+} from '../types.js'
 import type { OpenApiDocument } from './loader.js'
 
 export interface NormalizeResult {
@@ -102,12 +109,12 @@ function normalizeResponses(
   const mockResponses: MockResponse[] = []
 
   for (const [statusKey, rawResponse] of Object.entries(responses)) {
-    const statusCode = Number(statusKey)
+    // Sem a checagem, chaves como "0", "999" ou "" (que `Number` converte para
+    // 0) chegariam ao `reply.code()` e virariam erro interno em tempo de
+    // requisição, apontando para o lugar errado.
+    const statusCode = parseHttpStatus(statusKey)
 
-    // Três dígitos entre 100 e 599. Sem a checagem, chaves como "0", "999" ou ""
-    // (que `Number` converte para 0) chegariam ao `reply.code()` e virariam um
-    // erro interno em tempo de requisição, apontando para o lugar errado.
-    if (!/^\d{3}$/.test(statusKey) || statusCode < 100 || statusCode > 599) {
+    if (statusCode === null) {
       warnings.push(`${operationLabel}: status "${statusKey}" ignorado (não é um status HTTP válido)`)
       continue
     }
