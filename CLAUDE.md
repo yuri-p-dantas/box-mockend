@@ -113,10 +113,16 @@ teste. **Nunca a edite** — nem para corrigir os defeitos dela. Cada defeito é
 
 | Defeito na spec | Tratamento |
 | --- | --- |
-| `$ref` quebrado (`IFrameAddress`) | loader tolera, avisa, nó vira `null` |
 | `/order/{order_id}/print?type={type}` | normalizer remove a query da chave do path |
 | `v1/invoice` sem barra inicial | normalizer adiciona a barra |
 | `type: "file"` (Swagger 2.0) | gerador devolve `null` para tipo desconhecido |
+
+A spec **já teve** um quarto defeito, um `$ref` quebrado (`IFrameAddress`), removido do
+arquivo depois. A tolerância a `$ref` quebrado continua implementada no loader e a
+cobertura mudou para `tests/fixtures/edge-cases.json`, que reproduz o caso — sem isso, o
+comportamento seguiria existindo sem nunca ser exercitado. `somastore.test.ts` guarda
+hoje o inverso: falha se um nó `null` reaparecer em qualquer schema, sinalizando um
+`$ref` quebrado novo.
 
 Ao encontrar um novo defeito em qualquer spec: trate no código, emita aviso, escreva teste.
 Nunca ajuste a spec.

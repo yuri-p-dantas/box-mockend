@@ -242,7 +242,8 @@ disponível**.
 Specs reais têm defeitos, e o Mockend prefere subir com aviso a não subir:
 
 - **`$ref` quebrado** não derruba o boot — o nó não resolvido vira `null` e o problema
-  aparece como aviso.
+  aparece como aviso. A spec de exemplo já teve um caso desses; hoje ele é coberto pela
+  fixture de teste.
 - **Query string na chave do path** (`/order/{id}/print?type={type}`) é removida da rota;
   os parâmetros continuam valendo pela declaração em `parameters`.
 - **Path sem barra inicial** (`v1/invoice`) ganha a barra.

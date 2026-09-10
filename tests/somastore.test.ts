@@ -39,9 +39,11 @@ describe('spec real da Soma Store', () => {
     expect(routes).toHaveLength(43)
   })
 
-  it('reporta exatamente os três problemas conhecidos da spec', () => {
-    expect(warnings).toHaveLength(3)
-    expect(warnings.filter((warning) => warning.includes('IFrameAddress'))).toHaveLength(1)
+  it('reporta exatamente os dois problemas conhecidos da spec', () => {
+    // Houve um terceiro — o `$ref` quebrado `IFrameAddress` —, removido da spec
+    // depois. A cobertura desse caso vive em loader.test.ts, sobre a fixture
+    // sintética, para o comportamento continuar exercitado.
+    expect(warnings).toHaveLength(2)
     expect(warnings.filter((warning) => warning.includes('query string'))).toHaveLength(1)
     expect(warnings.filter((warning) => warning.includes('barra inicial'))).toHaveLength(1)
   })
@@ -152,15 +154,37 @@ describe('spec real da Soma Store', () => {
     }
   })
 
-  it('não quebra na rota cujo schema tem o $ref não resolvido', async () => {
-    const withBrokenRef = routes.filter((route) =>
-      JSON.stringify(route.responses).includes('"address":null'),
+  it('não tem mais nenhum $ref pendente de resolução', () => {
+    // Enquanto a spec tinha o `IFrameAddress` quebrado, este teste garantia que
+    // as rotas afetadas respondiam mesmo assim. Hoje ele guarda o inverso: um
+    // nó null dentro de um schema significa `$ref` quebrado, e se algum
+    // reaparecer queremos saber. A tolerância em si segue coberta em
+    // server.test.ts e loader.test.ts, sobre a fixture sintética.
+    const unresolved = (schema: unknown, path: string, found: string[] = []): string[] => {
+      if (!schema || typeof schema !== 'object') return found
+
+      for (const [key, value] of Object.entries(schema as Record<string, unknown>)) {
+        if (key !== 'properties' && key !== 'items') continue
+        if (value === null) found.push(`${path}.${key}`)
+        else if (key === 'items') unresolved(value, `${path}.items`, found)
+        else {
+          for (const [name, child] of Object.entries(value as Record<string, unknown>)) {
+            if (child === null) found.push(`${path}.${name}`)
+            else unresolved(child, `${path}.${name}`, found)
+          }
+        }
+      }
+
+      return found
+    }
+
+    const comRefQuebrado = routes.flatMap((route) =>
+      route.responses.flatMap((response) =>
+        unresolved(response.schema, `${route.method} ${route.fastifyPath} [${response.statusCode}]`),
+      ),
     )
 
-    for (const route of withBrokenRef) {
-      const response = await server.inject({ method: route.method, url: fillParams(route.fastifyPath) })
-      expect(response.headers['x-mockend-error'], `${route.method} ${route.fastifyPath}`).toBeUndefined()
-    }
+    expect(comRefQuebrado).toEqual([])
   })
 
   it('gera respostas determinísticas', async () => {

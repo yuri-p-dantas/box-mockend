@@ -36,24 +36,56 @@ describe('loadSpec', () => {
     await expect(loadSpec(resolve(import.meta.dirname, '..', 'package.json'))).rejects.toThrow(/paths/)
   })
 
+  /**
+   * A tolerância a `$ref` quebrado nasceu de um defeito real da spec da Soma
+   * Store (`IFrameAddress`), que foi removido do arquivo depois. A cobertura
+   * mudou para a fixture sintética, que reproduz o mesmo caso: sem isso, o
+   * comportamento continuaria implementado e deixaria de ser exercitado.
+   */
+  describe('$ref quebrado', () => {
+    let loaded: Awaited<ReturnType<typeof loadSpec>>
+
+    beforeAll(async () => {
+      loaded = await loadSpec(fixture('edge-cases.json'))
+    })
+
+    it('carrega a spec assim mesmo e reporta o problema como aviso', () => {
+      expect(loaded.warnings).toHaveLength(1)
+      expect(loaded.warnings[0]).toContain('DoesNotExist')
+    })
+
+    it('deixa null no nó que não pôde ser resolvido', () => {
+      const schema = (loaded.document as any).paths['/broken-ref'].get.responses['200'].content[
+        'application/json'
+      ].schema
+
+      expect(schema).toBeNull()
+    })
+
+    it('mantém o resto do documento resolvido', () => {
+      const merged = (loaded.document as any).paths['/composition'].get.responses['200'].content[
+        'application/json'
+      ].schema.properties.merged
+
+      expect(merged.allOf[0].properties.id.type).toBe('integer')
+    })
+  })
+
   describe('spec real da Soma Store', () => {
-    // 196 KB: carregar uma vez só para os dois testes.
     let loaded: Awaited<ReturnType<typeof loadSpec>>
 
     beforeAll(async () => {
       loaded = await loadSpec(SOMASTORE)
     })
 
-    it('carrega apesar do $ref quebrado e reporta o problema como aviso', () => {
+    it('carrega os 35 paths sem nenhum aviso de referência', () => {
       expect(Object.keys(loaded.document.paths ?? {})).toHaveLength(35)
-      expect(loaded.warnings).toHaveLength(1)
-      expect(loaded.warnings[0]).toContain('IFrameAddress')
+      expect(loaded.warnings).toEqual([])
     })
 
-    it('deixa null no nó que não pôde ser resolvido e mantém o resto resolvido', () => {
+    it('resolve os $ref usados pelas respostas', () => {
       const schemas = (loaded.document as any).components.schemas
 
-      expect(schemas.IFrameCustomer.properties.address).toBeNull()
       expect(schemas.ManualIntegrationEditCharge.allOf[0].properties).toBeDefined()
     })
   })
